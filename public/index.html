@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HUNTER SCANNER</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="header">
+      <div>
+        <p class="brand">HUNTER SCANNER</p>
+        <h1 class="title-tagline">Painel local · spread &amp; simulação</h1>
+        <p class="sub">
+          <strong>Dados reais:</strong> quotes on-chain (round-trip) quando o RPC
+          responder. <strong>Modelo / fictício:</strong> DexScreener + custos
+          estimados (referência). Atualização automática · notificações quando o
+          modelo indicar margem.
+        </p>
+      </div>
+      <div class="actions">
+        <button type="button" id="btnNotify" class="btn btn-primary">
+          Ativar notificações
+        </button>
+        <span id="notifyStatus" class="muted"></span>
+      </div>
+    </header>
+
+    <section class="toolbar">
+      <div>
+        <span class="label">Última atualização</span>
+        <strong id="lastUpdated">—</strong>
+      </div>
+      <div>
+        <span class="label">Resumo</span>
+        <strong id="metaSummary">—</strong>
+      </div>
+      <div>
+        <span class="label">Intervalo</span>
+        <strong id="pollIntervalLabel">45 s</strong>
+      </div>
+      <div>
+        <span class="label">Duração do scan</span>
+        <strong id="scanDurationMs">—</strong>
+      </div>
+      <div>
+        <span class="label">Status</span>
+        <strong id="fetchStatus">carregando…</strong>
+      </div>
+      <div class="toolbar-spacer"></div>
+      <div class="toolbar-actions">
+        <span class="label">Exportar scan atual</span>
+        <div class="toolbar-buttons">
+          <button type="button" id="btnExportCsv" class="btn">
+            CSV
+          </button>
+          <button type="button" id="btnExportJson" class="btn">
+            JSON
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <details class="settings-readonly">
+      <summary>Definições (somente leitura · servidor)</summary>
+      <div id="configPanel" class="config-panel muted">
+        <p>A carregar…</p>
+      </div>
+      <p class="muted" style="margin: 0.5rem 0 0; font-size: 0.85rem">
+        <a id="linkEnvExample" href="/api/env-example" target="_blank" rel="noopener"
+          >Ver ficheiro de exemplo de variáveis (.env)</a
+        >
+        · sem URLs de RPC no browser.
+      </p>
+    </details>
+
+    <div id="globalError" class="banner error hidden" role="alert"></div>
+
+    <nav class="tabs" role="tablist" aria-label="Tipo de dados">
+      <button
+        type="button"
+        class="tab tab--real is-active"
+        role="tab"
+        id="tabReal"
+        aria-selected="true"
+        aria-controls="panelReal"
+        data-tab="real"
+      >
+        Dados reais (on-chain)
+      </button>
+      <button
+        type="button"
+        class="tab tab--model"
+        role="tab"
+        id="tabModel"
+        aria-selected="false"
+        aria-controls="panelModel"
+        data-tab="model"
+      >
+        Dados fictícios / modelo
+      </button>
+      <button
+        type="button"
+        class="tab tab--history"
+        role="tab"
+        id="tabHistory"
+        aria-selected="false"
+        aria-controls="panelHistory"
+        data-tab="history"
+      >
+        Histórico
+      </button>
+    </nav>
+
+    <main class="main-panels">
+      <div
+        id="panelReal"
+        class="chains tab-panel is-active"
+        role="tabpanel"
+        aria-labelledby="tabReal"
+      ></div>
+      <div
+        id="panelModel"
+        class="chains tab-panel"
+        role="tabpanel"
+        aria-labelledby="tabModel"
+        hidden
+      ></div>
+      <div
+        id="panelHistory"
+        class="chains tab-panel tab-panel--history"
+        role="tabpanel"
+        aria-labelledby="tabHistory"
+        hidden
+      >
+        <div class="history-toolbar">
+          <label class="history-label">
+            Mercado
+            <select id="historyMarketSelect" class="history-select">
+              <option value="">Média de todos (por scan)</option>
+            </select>
+          </label>
+          <button type="button" id="btnHistoryRefresh" class="btn">
+            Atualizar gráfico
+          </button>
+        </div>
+        <p id="historyStatus" class="muted" style="margin: 0 0 0.75rem">
+          —
+        </p>
+        <div class="history-chart-wrap">
+          <svg
+            id="historyChart"
+            class="history-chart"
+            viewBox="0 0 520 200"
+            role="img"
+            aria-label="Lucro líquido ao longo dos scans"
+          ></svg>
+        </div>
+        <p class="muted" style="font-size: 0.82rem; margin: 0.75rem 0 0">
+          Pontos gravados no servidor (JSONL). Desligar gravação:
+          <code>ENABLE_SCAN_HISTORY=0</code>. O export CSV/JSON usa o último
+          scan do painel (<code>useLast=1</code>); se ainda não houver, corre um
+          scan novo.
+        </p>
+      </div>
+    </main>
+
+    <footer class="footer muted">
+      HUNTER SCANNER — não executa trades. Mercados dinâmicos:
+      <code>npm run seed:tokens</code> e <code>data/seed-tokens.json</code>.
+    </footer>
+
+    <script src="/app.js" defer></script>
+  </body>
+</html>

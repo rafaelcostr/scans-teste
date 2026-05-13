@@ -1,0 +1,3 @@
+# Copia para git-exe.path (mesma pasta) e deixa UMA linha com o caminho absoluto para git.exe.
+# Exemplo (apaga o # na linha que usares):
+# C:\Program Files\Git\cmd\git.exe

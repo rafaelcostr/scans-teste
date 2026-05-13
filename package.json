@@ -1,0 +1,28 @@
+{
+  "name": "scans-teste",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "node server.js",
+    "start:win": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-scanner.ps1",
+    "scan": "node index.js",
+    "seed:tokens": "node scripts/generate-seed-tokens.js",
+    "webhook:echo": "node scripts/webhook-echo-receiver.js",
+    "test": "node scripts/run-node-tests.js",
+    "typecheck": "node node_modules/typescript/lib/tsc.js --noEmit",
+    "git:consolidate": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/consolidate-commit.ps1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "typescript": "^5.8.2"
+  },
+  "dependencies": {
+    "axios": "^1.16.0",
+    "ethers": "^6.16.0",
+    "express": "^4.21.2"
+  }
+}
