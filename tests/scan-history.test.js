@@ -15,7 +15,7 @@ describe("scan-history (ficheiro temporário)", () => {
   let histFile;
 
   beforeEach(async () => {
-    tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "hunter-hist-"));
+    tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "scan-hist-"));
     histFile = path.join(tmpDir, "scan-history.jsonl");
     process.env.HISTORY_FILE = histFile;
     delete process.env.HISTORY_MAX_SCANS;

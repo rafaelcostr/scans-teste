@@ -3,13 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>HUNTER SCANNER</title>
+    <title>DEX Scanner</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <header class="header">
       <div>
-        <p class="brand">HUNTER SCANNER</p>
+        <p class="brand">DEX Scanner</p>
         <h1 class="title-tagline">Painel local · spread &amp; simulação</h1>
         <p class="sub">
           <strong>Dados reais:</strong> quotes on-chain (round-trip) quando o RPC
@@ -37,7 +37,7 @@
       </div>
       <div>
         <span class="label">Intervalo</span>
-        <strong id="pollIntervalLabel">45 s</strong>
+        <strong id="pollIntervalLabel">15 s</strong>
       </div>
       <div>
         <span class="label">Duração do scan</span>
@@ -46,6 +46,14 @@
       <div>
         <span class="label">Status</span>
         <strong id="fetchStatus">carregando…</strong>
+      </div>
+      <div>
+        <span class="label">RPC Base</span>
+        <strong id="rpcBaseStatus">checando...</strong>
+      </div>
+      <div>
+        <span class="label">Intents</span>
+        <span id="intentsQuick" class="muted">—</span>
       </div>
       <div class="toolbar-spacer"></div>
       <div class="toolbar-actions">
@@ -59,6 +67,22 @@
           </button>
         </div>
       </div>
+    </section>
+
+    <section class="toolbar toolbar--filters" aria-label="Filtros do painel">
+      <div>
+        <span class="label">Chain</span>
+        <select id="filterChain" class="select-inline" title="Filtrar por rede">
+          <option value="">(todas)</option>
+        </select>
+      </div>
+      <label class="check-inline"
+        ><input type="checkbox" id="filterWorthwhile" /> Só worthwhile</label
+      >
+      <label class="check-inline"
+        ><input type="checkbox" id="filterOnchain" /> Só com sim on-chain
+        (REAL)</label
+      >
     </section>
 
     <details class="settings-readonly">
@@ -110,6 +134,17 @@
       >
         Histórico
       </button>
+      <button
+        type="button"
+        class="tab tab--paper"
+        role="tab"
+        id="tabPaper"
+        aria-selected="false"
+        aria-controls="panelPaper"
+        data-tab="paper"
+      >
+        Paper PnL
+      </button>
     </nav>
 
     <main class="main-panels">
@@ -159,14 +194,50 @@
         <p class="muted" style="font-size: 0.82rem; margin: 0.75rem 0 0">
           Pontos gravados no servidor (JSONL). Desligar gravação:
           <code>ENABLE_SCAN_HISTORY=0</code>. O export CSV/JSON usa o último
-          scan do painel (<code>useLast=1</code>); se ainda não houver, corre um
+          scan do painel (<code>useLast=1</code>); se ainda não houver, executa um
           scan novo.
+        </p>
+      </div>
+      <div
+        id="panelPaper"
+        class="chains tab-panel tab-panel--paper"
+        role="tabpanel"
+        aria-labelledby="tabPaper"
+        hidden
+      >
+        <div class="history-toolbar">
+          <button type="button" id="btnPaperRefresh" class="btn">
+            Atualizar relatÃ³rio
+          </button>
+          <span id="paperStatus" class="muted">â€”</span>
+        </div>
+        <div id="paperHero" class="paper-hero"></div>
+        <div id="paperLoopStatus" class="paper-loop-status"></div>
+        <div id="paperSummary" class="paper-summary"></div>
+        <div class="paper-grid">
+          <section>
+            <h2 class="paper-heading">Motivos de rejeiÃ§Ã£o</h2>
+            <div id="paperReasons" class="paper-list"></div>
+          </section>
+          <section>
+            <h2 class="paper-heading">PnL por chain</h2>
+            <div id="paperChains" class="paper-list"></div>
+          </section>
+        </div>
+        <section>
+          <h2 class="paper-heading">Ãšltimos trades paper</h2>
+          <div id="paperTrades" class="paper-table-wrap"></div>
+        </section>
+        <p class="muted" style="font-size: 0.82rem; margin: 0.75rem 0 0">
+          Paper trading nÃ£o envia transaÃ§Ãµes. O PnL Ã© estimado a partir dos
+          intents aceitos pelo executor dry-run e gravado em
+          <code>data/paper-trades.jsonl</code>.
         </p>
       </div>
     </main>
 
     <footer class="footer muted">
-      HUNTER SCANNER — não executa trades. Mercados dinâmicos:
+      DEX Scanner — não executa trades. Mercados dinâmicos:
       <code>npm run seed:tokens</code> e <code>data/seed-tokens.json</code>.
     </footer>
 

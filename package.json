@@ -1,20 +1,23 @@
 {
   "name": "scans-teste",
   "version": "1.0.0",
-  "description": "",
+  "description": "Scanner local de spreads em DEXs com painel web, simulação on-chain (eth_call) e paper trading dry-run — sem enviar transações reais.",
   "main": "index.js",
   "scripts": {
     "start": "node server.js",
     "start:win": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-scanner.ps1",
+    "menu": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/menu-inicializador.ps1",
     "scan": "node index.js",
     "seed:tokens": "node scripts/generate-seed-tokens.js",
     "webhook:echo": "node scripts/webhook-echo-receiver.js",
+    "executor:tick": "node scripts/executor-tick.js",
+    "executor:simulate": "node scripts/executor-simulate.js",
+    "paper:loop": "node scripts/paper-loop.js",
     "test": "node scripts/run-node-tests.js",
     "typecheck": "node node_modules/typescript/lib/tsc.js --noEmit",
     "git:consolidate": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/consolidate-commit.ps1"
   },
   "keywords": [],
-  "author": "",
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {

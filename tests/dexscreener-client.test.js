@@ -2,8 +2,11 @@ const { describe, it } = require("node:test");
 const assert = require("node:assert/strict");
 const {
   dexscreenerPairUrl,
-  fetchDexscreenerPairQuote
+  fetchDexscreenerPairQuote,
+  parseDexscreenerPairPayload
 } = require("../lib/sources/dexscreener-client.js");
+const fs = require("node:fs");
+const path = require("node:path");
 
 describe("dexscreener-client", () => {
   it("dexscreenerPairUrl codifica chain e pair", () => {
@@ -35,6 +38,7 @@ describe("dexscreener-client", () => {
       }
     };
     const marketDiag = {
+      marketId: "test-m",
       dexscreener: { requests: 0, errors: 0, lastError: null, cacheHits: 0 }
     };
     const q = await fetchDexscreenerPairQuote(
@@ -47,5 +51,18 @@ describe("dexscreener-client", () => {
     assert.equal(q.baseToken.address.toLowerCase().slice(0, 6), "0x82af");
     assert.equal(q.quoteToken.symbol, "USDC");
     assert.equal(marketDiag.dexscreener.requests, 1);
+  });
+
+  it("parseDexscreenerPairPayload lê fixture local (sem rede)", () => {
+    const fp = path.join(__dirname, "fixtures", "dexscreener-pair-sample.json");
+    const body = JSON.parse(fs.readFileSync(fp, "utf8"));
+    const q = parseDexscreenerPairPayload(body, {
+      name: "Fixture",
+      chain: "polygon",
+      pair: "0x1"
+    });
+    assert.equal(q.price, 1.001);
+    assert.equal(q.liquidityUsd, 500000);
+    assert.equal(q.quoteToken.symbol, "WETH");
   });
 });

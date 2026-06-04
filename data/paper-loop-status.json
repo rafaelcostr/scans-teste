@@ -1,0 +1,17 @@
+{
+  "ok": true,
+  "cycleStartedAt": "2026-05-21T04:23:59.166Z",
+  "cycleFinishedAt": "2026-05-21T04:24:09.916Z",
+  "scanUpdatedAt": "2026-05-21T04:23:59.167Z",
+  "intents": 1,
+  "selectedIntents": 0,
+  "modelIntentsIgnored": 1,
+  "added": 0,
+  "skipped": 0,
+  "dropped": 1,
+  "ticks": 0,
+  "accepted": 0,
+  "rejected": 0,
+  "intervalMs": 15000,
+  "mode": "onchain_only"
+}

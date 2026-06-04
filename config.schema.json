@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/dex-scanner-env.schema.json",
+  "title": "DEX_SCANNER — variáveis de ambiente (referência)",
+  "description": "Documentação de chaves suportadas. A validação em runtime faz-se em lib/env-validate.js (não substitui este ficheiro).",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "PORT": { "type": "string", "description": "Porta HTTP do servidor (1–65535)." },
+    "SCAN_UI_POLL_MS": { "type": "string", "description": "Intervalo em ms entre scans automaticos do painel." },
+    "NOTIONAL_USD": { "type": "string", "description": "Notional USD do modelo." },
+    "SLIPPAGE_BPS": { "type": "string", "description": "Slippage em basis points." },
+    "RPC_POLYGON": { "type": "string", "description": "URL(s) RPC Polygon, vírgula = fallback." },
+    "RPC_URLS_JSON": { "type": "string", "description": "JSON com listas de RPC por rede." },
+    "RPC_CIRCUIT_BREAKER": { "type": "string", "description": "1 = circuit breaker por endpoint; 0 = só métricas." },
+    "RPC_CB_FAILURE_THRESHOLD": { "type": "string", "description": "Falhas seguidas antes do cooldown." },
+    "RPC_CB_COOLDOWN_MS": { "type": "string", "description": "Duração do circuito aberto por endpoint." },
+    "QUOTE_SIM_BLOCK_TAG": {
+      "type": "string",
+      "description": "Opcional: pending|safe|finalized|latest|altura decimal|0xhex para eth_call/estimateGas."
+    },
+    "AGGREGATOR_POLYGON_STABLE": {
+      "type": "string",
+      "description": "Endereço checksummed do stable em Polygon para 1inch/0x (default USDC nativo)."
+    },
+    "AGGREGATOR_POLYGON_STABLE_DECIMALS": { "type": "string", "description": "Decimais do token acima (default 6)." },
+    "ENABLE_AGGREGATORS": { "type": "string", "description": "1/true para agregadores." },
+    "DEXSCREENER_TELEMETRY": { "type": "string", "description": "0 desliga métricas de latência por mercado." },
+    "WEBHOOK_URL": { "type": "string", "description": "URL POST de oportunidades." },
+    "WEBHOOK_SECRET": { "type": "string", "description": "Segredo HMAC (nunca no browser)." },
+    "WEBHOOK_DEDUPE_FINGERPRINT": { "type": "string", "description": "1 = não reenviar mesmo fingerprint dentro da janela." },
+    "WEBHOOK_DEDUPE_WINDOW_MS": { "type": "string", "description": "Janela de dedupe em ms." },
+    "EXECUTOR_API_KEY": { "type": "string", "description": "Chave API do executor (servidor)." },
+    "EXECUTOR_KILL_SWITCH": { "type": "string", "description": "1 bloqueia enqueue/tick." },
+    "RISK_POLICY_DISABLED": { "type": "string", "description": "1 desliga o risk gate do executor dry-run." },
+    "RISK_REQUIRE_ONCHAIN": { "type": "string", "description": "1 exige intent mode=onchain antes de passar no executor." },
+    "RISK_ALLOW_DYNAMIC": { "type": "string", "description": "1 permite mercados dinamicos no executor." },
+    "RISK_ALLOWED_CHAINS": { "type": "string", "description": "Lista opcional de redes permitidas, separada por virgula." },
+    "RISK_MAX_NOTIONAL_USD": { "type": "string", "description": "Notional maximo por intent." },
+    "RISK_MIN_NET_PROFIT_USD": { "type": "string", "description": "Lucro liquido minimo antes do buffer." },
+    "RISK_MIN_PROFIT_BUFFER_USD": { "type": "string", "description": "Margem extra exigida acima do minimo." },
+    "RISK_MAX_SLIPPAGE_BPS": { "type": "string", "description": "Slippage maximo permitido em bps." },
+    "RISK_MAX_QUOTE_AGE_SEC": { "type": "string", "description": "Idade maxima da quote em segundos." },
+    "PAPER_LOOP_INTERVAL_MS": { "type": "string", "description": "Intervalo entre ciclos do paper loop." },
+    "PAPER_START_BALANCE_USD": { "type": "string", "description": "Saldo inicial ficticio para o relatorio Paper PnL." },
+    "PAPER_TRADES_FILE": { "type": "string", "description": "Ficheiro JSONL para eventos de paper trading." },
+    "PAPER_LOOP_STATUS_FILE": { "type": "string", "description": "Ficheiro JSON com heartbeat/status do paper loop." },
+    "PAPER_LOG_DISABLED": { "type": "string", "description": "1 desliga a escrita do log paper." }
+  }
+}

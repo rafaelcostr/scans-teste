@@ -1,23 +1,26 @@
-# Arranca o painel sem ter de colar comandos no PowerShell.
-# Uso (na pasta do projeto):  .\scripts\start-scanner.ps1
-# Ou:  npm run start:win
-#
-# NAO cole no terminal: linhas "PS C:\...>", "Node.js v...", erros do Node, nem o prompt ">>".
+# Arranca o painel (servidor Node).
+# Uso: duplo clique INICIAR-Painel.bat ou opção 1 do INICIAR.bat
 
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $ProjectRoot
 
-# Porta 3001 evita conflito se algo ja usar a 3000. Para 3000: comente as 2 linhas abaixo.
-$env:PORT = "3001"
+. (Join-Path $PSScriptRoot "load-dotenv.ps1")
 
-$env:USE_REAL_CHAIN_DATA = "1"
-$env:RPC_ARBITRUM = "https://arb1.arbitrum.io/rpc"
+if (-not $env:PORT) { $env:PORT = "3000" }
 
+$port = $env:PORT
 Write-Host ""
-Write-Host "Pasta: $ProjectRoot" -ForegroundColor Gray
-Write-Host "Painel: http://localhost:$($env:PORT)" -ForegroundColor Cyan
-Write-Host "Ctrl+C para parar o servidor." -ForegroundColor Gray
+Write-Host "DEX Scanner - servidor" -ForegroundColor Cyan
+Write-Host "Pasta:  $ProjectRoot" -ForegroundColor Gray
+Write-Host "Painel: http://localhost:$port" -ForegroundColor Green
+if ($env:RPC_BASE) {
+  Write-Host "RPC Base: configurado no .env" -ForegroundColor DarkGray
+} else {
+  Write-Host "RPC: não definido — copie .env.example para .env" -ForegroundColor Yellow
+}
+Write-Host ""
+Write-Host "Ctrl+C para parar." -ForegroundColor Gray
 Write-Host ""
 
 npm start

@@ -1,13 +1,15 @@
-const POLL_MS = 45000;
+const DEFAULT_POLL_MS = 15000;
 const NOTIFY_COOLDOWN_MS = 90000;
 const UI_MAX_PER_TAB = 80;
 
 const lastUpdated = document.getElementById("lastUpdated");
 const fetchStatus = document.getElementById("fetchStatus");
 const scanDurationMs = document.getElementById("scanDurationMs");
+const rpcBaseStatus = document.getElementById("rpcBaseStatus");
 const panelReal = document.getElementById("panelReal");
 const panelModel = document.getElementById("panelModel");
 const panelHistory = document.getElementById("panelHistory");
+const panelPaper = document.getElementById("panelPaper");
 const metaSummary = document.getElementById("metaSummary");
 const globalError = document.getElementById("globalError");
 const btnNotify = document.getElementById("btnNotify");
@@ -17,10 +19,28 @@ const btnExportCsv = document.getElementById("btnExportCsv");
 const btnExportJson = document.getElementById("btnExportJson");
 const historyMarketSelect = document.getElementById("historyMarketSelect");
 const btnHistoryRefresh = document.getElementById("btnHistoryRefresh");
+const btnPaperRefresh = document.getElementById("btnPaperRefresh");
+const paperStatus = document.getElementById("paperStatus");
+const paperHero = document.getElementById("paperHero");
+const paperLoopStatus = document.getElementById("paperLoopStatus");
+const paperSummary = document.getElementById("paperSummary");
+const paperReasons = document.getElementById("paperReasons");
+const paperChains = document.getElementById("paperChains");
+const paperTrades = document.getElementById("paperTrades");
 
 let lastNotifyAt = 0;
 let lastHadOpportunity = false;
 let lastMarketList = [];
+let lastScanData = null;
+let scanPollMs = DEFAULT_POLL_MS;
+let scanPollTimer = null;
+let scanInFlight = false;
+let paperInFlight = false;
+
+const filterChain = document.getElementById("filterChain");
+const filterWorthwhile = document.getElementById("filterWorthwhile");
+const filterOnchain = document.getElementById("filterOnchain");
+const intentsQuickEl = document.getElementById("intentsQuick");
 
 function formatQuoteAge(iso) {
   if (!iso) return "—";
@@ -38,9 +58,123 @@ function escapeHtml(str) {
     .replace(/"/g, "&quot;");
 }
 
+function formatRpcHealthLine(cfg) {
+  const h = cfg.rpcHealth || {};
+  const cb = cfg.rpcCircuitBreaker ? "circuit ligado" : "só métricas (sem trip)";
+  const bits = [];
+  for (const ch of Object.keys(h).sort()) {
+    const v = h[ch];
+    if (!v || (v.callsOk === 0 && v.callsErr === 0)) continue;
+    let s = `${ch}: ok ${v.callsOk} · err ${v.callsErr}`;
+    if (v.meanLatencyOkMs != null) s += ` · ~${v.meanLatencyOkMs} ms`;
+    if (v.endpointsCircuitOpen > 0) {
+      s += ` · cooldown ${v.endpointsCircuitOpen} endpoint(s)`;
+    }
+    bits.push(s);
+  }
+  const tail = bits.length ? bits.join(" · ") : "sem amostras desde o arranque";
+  return `${cb} · ${tail}`;
+}
+
+function formatDexTelemetrySummary(cfg) {
+  const t = cfg.dexscreenerTelemetry;
+  if (!t || t.enabled === false) return "desligado (DEXSCREENER_TELEMETRY=0)";
+  const slow = (t.slowestMarkets || [])
+    .slice(0, 4)
+    .map((x) => `${x.marketId}: ~${x.avgMs} ms`)
+    .join(" · ");
+  const chronic = (t.marketsDexOnlyErrors || [])
+    .slice(0, 3)
+    .map((x) => `${x.marketId} (${x.errors}×)`)
+    .join(" · ");
+  return `fetches OK ${t.totalPairFetchesOk ?? 0} · erros ${t.totalPairFetchErrors ?? 0}${
+    t.meanMsAllMarkets != null ? ` · média global ~${t.meanMsAllMarkets} ms` : ""
+  }${slow ? ` · lentos: ${slow}` : ""}${chronic ? ` · só erros: ${chronic}` : ""}`;
+}
+
+function loadUiFiltersFromStorage() {
+  try {
+    if (filterChain && sessionStorage.getItem("scanFilterChain")) {
+      filterChain.value = sessionStorage.getItem("scanFilterChain") || "";
+    }
+    if (filterWorthwhile) {
+      filterWorthwhile.checked =
+        sessionStorage.getItem("scanFilterWorthwhile") === "1";
+    }
+    if (filterOnchain) {
+      filterOnchain.checked = sessionStorage.getItem("scanFilterOnchain") === "1";
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function saveUiFiltersToStorage() {
+  try {
+    if (filterChain) sessionStorage.setItem("scanFilterChain", filterChain.value || "");
+    if (filterWorthwhile) {
+      sessionStorage.setItem("scanFilterWorthwhile", filterWorthwhile.checked ? "1" : "0");
+    }
+    if (filterOnchain) {
+      sessionStorage.setItem("scanFilterOnchain", filterOnchain.checked ? "1" : "0");
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function populateChainFilter(markets) {
+  if (!filterChain) return;
+  const seen = new Set();
+  for (const m of markets || []) {
+    if (m && m.chain) seen.add(String(m.chain).toLowerCase());
+  }
+  const cur = filterChain.value;
+  while (filterChain.options.length > 1) {
+    filterChain.remove(1);
+  }
+  for (const ch of [...seen].sort()) {
+    const o = document.createElement("option");
+    o.value = ch;
+    o.textContent = ch;
+    filterChain.appendChild(o);
+  }
+  if (cur && [...seen].includes(cur)) filterChain.value = cur;
+}
+
+function applyPanelFilters(markets) {
+  let list = Array.isArray(markets) ? markets.slice() : [];
+  const ch = filterChain && filterChain.value;
+  if (ch) {
+    list = list.filter((m) => String(m.chain || "").toLowerCase() === ch);
+  }
+  if (filterWorthwhile && filterWorthwhile.checked) {
+    list = list.filter((m) => m.analysis && m.analysis.worthwhile);
+  }
+  if (filterOnchain && filterOnchain.checked) {
+    list = list.filter((m) => m.analysis && m.analysis.onChainRoundtrip);
+  }
+  return list;
+}
+
 function renderPublicConfig(cfg) {
   const el = document.getElementById("configPanel");
   if (!el || !cfg) return;
+  if (rpcBaseStatus) {
+    const baseOk = Boolean(cfg.rpcConfigured && cfg.rpcConfigured.base);
+    const n = cfg.rpcEndpointCounts && cfg.rpcEndpointCounts.base;
+    rpcBaseStatus.textContent = baseOk ? `sim (${n || 1})` : "não";
+    rpcBaseStatus.className = baseOk ? "tag-ok" : "tag-warn";
+    rpcBaseStatus.title = baseOk
+      ? "RPC_BASE carregado no servidor"
+      : "RPC_BASE não carregado. Edite .env e reinicie o painel.";
+  }
+  if (Number.isFinite(Number(cfg.scanUiPollMs))) {
+    scanPollMs = Math.max(5000, Number(cfg.scanUiPollMs));
+    const pollEl = document.getElementById("pollIntervalLabel");
+    if (pollEl) pollEl.textContent = `${Math.round(scanPollMs / 1000)} s`;
+    if (scanPollTimer) startScanPolling(scanPollMs);
+  }
   const rpc = cfg.rpcConfigured || {};
   const rpcBits = Object.entries(rpc)
     .map(([ch, ok]) => `${ch}: ${ok ? "sim" : "não"}`)
@@ -57,7 +191,9 @@ function renderPublicConfig(cfg) {
       <dt>Mín. spread % (worthwhile)</dt><dd>${escapeHtml(String(cfg.minSpreadPercent ?? "0"))} % · env MIN_SPREAD_PERCENT</dd>
       <dt>QUOTE_MAX_AGE_SEC (stale)</dt><dd>${cfg.quoteMaxAgeSec != null ? escapeHtml(String(cfg.quoteMaxAgeSec)) + " s" : "desligado"}</dd>
       <dt>Liquidez mín. dinâmica (USD)</dt><dd>${escapeHtml(String(cfg.dynamicMinLiquidityUsd ?? "—"))}</dd>
-      <dt>Webhook (POST oportunidades)</dt><dd>${cfg.webhookEnabled ? "ativo" : "inativo"} · env WEBHOOK_URL / ENABLE_WEBHOOK</dd>
+      <dt>Webhook (POST oportunidades)</dt><dd>${cfg.webhookEnabled ? "ativo" : "inativo"} · HMAC + retries se WEBHOOK_SECRET · env WEBHOOK_URL / WEBHOOK_MAX_RETRIES / WEBHOOK_MINIMAL_PAYLOAD</dd>
+      <dt>Executor (fila dry-run)</dt><dd>${cfg.executorApiConfigured ? "API configurada (X-Executor-Key)" : "desligado"}${cfg.executorKillSwitchActive ? " · KILL_SWITCH" : ""} · npm run executor:tick</dd>
+      <dt>Risk gate executor</dt><dd>${cfg.riskPolicyEnabled ? "ligado" : "desligado"} · on-chain: ${cfg.riskRequireOnchain ? "obrigatório" : "não"} · dyn: ${cfg.riskAllowDynamic ? "permitido" : "bloqueado"} · max ${escapeHtml(String(cfg.riskMaxNotionalUsd ?? ""))} USD · min ${escapeHtml(String(cfg.riskMinNetProfitUsd ?? ""))}+${escapeHtml(String(cfg.riskMinProfitBufferUsd ?? ""))} USD · slip max ${escapeHtml(String(cfg.riskMaxSlippageBps ?? ""))} bps · quote max ${escapeHtml(String(cfg.riskMaxQuoteAgeSec ?? ""))} s</dd>
       <dt>Intents: só on-chain</dt><dd>${cfg.intentsOnchainOnly ? "sim (INTENTS_ONCHAIN_ONLY)" : "não"}</dd>
       <dt>Intents: filtro por chains</dt><dd>${cfg.intentsChainsFilterActive ? "ativo (INTENTS_CHAINS)" : "não"}</dd>
       <dt>Intents: mín. lucro extra (USD)</dt><dd>${cfg.intentsMinNetUsdExtra != null ? escapeHtml(String(cfg.intentsMinNetUsdExtra)) : "—"}</dd>
@@ -71,7 +207,10 @@ function renderPublicConfig(cfg) {
       .map(([ch, n]) => `${ch}: ${n}`)
       .join(" · ") || "—"
   )} · múltiplos URLs: vírgula no env da rede ou array em RPC_URLS_JSON</dd>
-      <dt>Histórico (JSONL)</dt><dd>${cfg.scanHistoryEnabled ? "ligado" : "desligado"} · máx. ${escapeHtml(String(cfg.historyMaxScans ?? ""))} scans · ficheiro: ${escapeHtml(String(cfg.historyFile ?? ""))}</dd>
+      <dt>RPC (métricas + circuit breaker)</dt><dd>${escapeHtml(formatRpcHealthLine(cfg))}</dd>
+      <dt>QUOTE_SIM_BLOCK_TAG</dt><dd>${cfg.quoteSimBlockTag ? escapeHtml(String(cfg.quoteSimBlockTag)) : "— (latest)"}</dd>
+      <dt>DexScreener (telemetria pares)</dt><dd>${escapeHtml(formatDexTelemetrySummary(cfg))}</dd>
+      <dt>Histórico (JSONL)</dt><dd>${cfg.scanHistoryEnabled ? "ligado" : "desligado"} · máx. ${escapeHtml(String(cfg.historyMaxScans ?? ""))} scans · ficheiro: ${escapeHtml(String(cfg.historyFile ?? ""))} · ruído: ${escapeHtml(String(cfg.flags?.HISTORY_NOISE_WINDOW_SCANS ?? ""))} scans · vol. σ: ${escapeHtml(String(cfg.flags?.HISTORY_VOLATILITY_STDDEV_SPREAD_MIN ?? ""))}</dd>
       <dt>Ruído histórico (avisos no scan)</dt><dd>janela ${escapeHtml(String(cfg.flags?.HISTORY_NOISE_WINDOW_SCANS ?? ""))} · mín. modelo ${escapeHtml(String(cfg.flags?.HISTORY_NOISE_MODEL_MIN ?? ""))} · só dyn: ${escapeHtml(String(cfg.flags?.HISTORY_NOISE_ONLY_DYNAMIC ?? ""))}</dd>
       <dt>Filtros DexScreener (dinâmicos)</dt><dd>vol24h mín. ${escapeHtml(String(cfg.flags?.DYNAMIC_MIN_H24_VOLUME_USD ?? ""))} · vol/liq máx. ${escapeHtml(String(cfg.flags?.DYNAMIC_MAX_VOL_TO_LIQ_RATIO ?? ""))} · idade par (h) ${escapeHtml(String(cfg.flags?.DYNAMIC_MIN_PAIR_AGE_HOURS ?? ""))} · allow ${escapeHtml(String(cfg.flags?.DYNAMIC_DEX_ALLOWLIST ?? ""))} · block ${escapeHtml(String(cfg.flags?.DYNAMIC_DEX_BLOCKLIST ?? ""))}</dd>
       <dt>Agregadores (1inch/0x fallback)</dt><dd>${cfg.aggregatorsEnabled ? "ativos (env + keys)" : "inativos"}</dd>
@@ -135,6 +274,7 @@ function activateTab(which) {
   const showReal = which === "real";
   const showModel = which === "model";
   const showHistory = which === "history";
+  const showPaper = which === "paper";
   if (panelReal) {
     panelReal.classList.toggle("is-active", showReal);
     panelReal.toggleAttribute("hidden", !showReal);
@@ -147,11 +287,18 @@ function activateTab(which) {
     panelHistory.classList.toggle("is-active", showHistory);
     panelHistory.toggleAttribute("hidden", !showHistory);
   }
+  if (panelPaper) {
+    panelPaper.classList.toggle("is-active", showPaper);
+    panelPaper.toggleAttribute("hidden", !showPaper);
+  }
   if (showHistory) {
     loadHistoryPanel();
   }
+  if (showPaper) {
+    loadPaperPanel();
+  }
   try {
-    sessionStorage.setItem("hunterTab", which);
+    sessionStorage.setItem("scanTab", which);
   } catch {
     /* ignore */
   }
@@ -162,8 +309,8 @@ tabs.forEach((tab) => {
 });
 
 try {
-  const saved = sessionStorage.getItem("hunterTab");
-  if (saved === "model" || saved === "real" || saved === "history") {
+  const saved = sessionStorage.getItem("scanTab");
+  if (saved === "model" || saved === "real" || saved === "history" || saved === "paper") {
     activateTab(saved);
   }
 } catch {
@@ -216,9 +363,19 @@ function createMarketCard(block, data, mode) {
   }
 
   if (block.onChainSimFailure && !block.disabled && !block.error) {
+    const code = block.onChainSimFailure.code;
+    const reason = escapeHtml(block.onChainSimFailure.reason || "");
+    let gloss = "";
+    if (code === "NO_RPC") {
+      gloss =
+        " <span class=\"muted\">→ Sem RPC no servidor: defina RPC_&lt;rede&gt; ou RPC_URLS_JSON.</span>";
+    } else if (code === "UNKNOWN_POOL") {
+      gloss =
+        " <span class=\"muted\">→ Par curado sem entrada em POOL_ENGINE (ver lib/curated-onchain-sim.js).</span>";
+    }
     const warn = document.createElement("div");
     warn.className = "sim-failure";
-    warn.textContent = `Simulação on-chain: ${block.onChainSimFailure.code} — ${block.onChainSimFailure.reason}`;
+    warn.innerHTML = `Simulação on-chain: <strong>${escapeHtml(String(code))}</strong> — ${reason}${gloss}`;
     card.appendChild(warn);
   }
 
@@ -350,6 +507,25 @@ function createMarketCard(block, data, mode) {
       <div><span>Notional</span><span>${formatMoney(data.params?.notionalUsd)}</span></div>
     `;
   card.appendChild(metrics);
+
+  const peg = a.signalModelMetrics?.stablePeg;
+  if (peg?.crossStableBasisBps?.length) {
+    const pegEl = document.createElement("div");
+    pegEl.className = "muted";
+    pegEl.style.fontSize = "0.78rem";
+    pegEl.style.marginTop = "0.45rem";
+    pegEl.style.padding = "0.35rem 0.5rem";
+    pegEl.style.borderLeft = "3px solid #4682b4";
+    const rows = peg.crossStableBasisBps
+      .slice(0, 4)
+      .map(
+        (x) =>
+          `${escapeHtml(x.stableALabel)}↔${escapeHtml(x.stableBLabel)}: ${escapeHtml(String(x.basisBps))} bps (med. WETH $${escapeHtml(x.medianUsdA.toFixed(0))} / $${escapeHtml(x.medianUsdB.toFixed(0))})`
+      )
+      .join("<br>");
+    pegEl.innerHTML = `<strong>Métricas peg (modelo Polygon)</strong><br>${rows}`;
+    card.appendChild(pegEl);
+  }
 
   const ol = document.createElement("ol");
   ol.className = "explain";
@@ -544,6 +720,205 @@ async function loadHistoryPanel() {
   }
 }
 
+function pct(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return "0%";
+  return `${(x * 100).toFixed(1)}%`;
+}
+
+function renderPaperList(el, rows, emptyText, renderRow) {
+  if (!el) return;
+  if (!rows || rows.length === 0) {
+    el.innerHTML = `<p class="muted">${escapeHtml(emptyText)}</p>`;
+    return;
+  }
+  el.innerHTML = rows.map(renderRow).join("");
+}
+
+function paperReasonLabel(reason) {
+  const map = {
+    risk_requires_onchain:
+      "Rejeitado: ainda não era dado REAL/on-chain. Configure RPC ou desligue RISK_REQUIRE_ONCHAIN para estudo.",
+    risk_profit_below_buffer:
+      "Rejeitado: lucro abaixo do mínimo + margem de segurança.",
+    risk_dynamic_market_blocked:
+      "Rejeitado: mercado dinâmico bloqueado pelo risk gate.",
+    risk_notional_above_limit:
+      "Rejeitado: notional acima do limite.",
+    risk_slippage_above_limit:
+      "Rejeitado: slippage acima do limite.",
+    risk_quote_too_old:
+      "Rejeitado: quote velha.",
+    risk_quote_age_unknown:
+      "Rejeitado: idade da quote desconhecida.",
+    scan_stale_updatedAt:
+      "Rejeitado: scan antigo em relação ao intent.",
+    netProfitUsd_drift_vs_scan:
+      "Rejeitado: lucro mudou demais desde o scan."
+  };
+  return map[reason] || reason || "ok";
+}
+
+function renderPaperPanel(body) {
+  const s = body.summary || {};
+  const trades = Array.isArray(body.trades) ? body.trades : [];
+  const loop = body.loopStatus || null;
+  const startingBalance = Number.isFinite(Number(s.startingBalanceUsd))
+    ? Number(s.startingBalanceUsd)
+    : 200;
+  const totalPnl = Number.isFinite(Number(s.totalPaperPnlUsd))
+    ? Number(s.totalPaperPnlUsd)
+    : 0;
+  const currentBalance = Number.isFinite(Number(s.currentBalanceUsd))
+    ? Number(s.currentBalanceUsd)
+    : startingBalance + totalPnl;
+  const accepted = Number(s.accepted || 0);
+  const rejected = Number(s.rejected || 0);
+  const total = Number(s.total || 0);
+  const hasAccepted = accepted > 0;
+  if (paperHero) {
+    paperHero.innerHTML = `
+      <div>
+        <span class="paper-kicker">Simulação paper ativa</span>
+        <h2>Teste iniciado com ${formatMoney(startingBalance)} fictícios</h2>
+        <p>
+          O robô observa oportunidades, aplica o risk gate e só altera o saldo quando um trade paper é aceito.
+          O PnL aceito já vem líquido de custos estimados: gas, slippage e taxas consideradas no scan.
+        </p>
+      </div>
+      <div class="paper-hero-balance ${currentBalance >= startingBalance ? "is-up" : "is-down"}">
+        <span>Saldo fictício atual</span>
+        <strong>${formatMoney(currentBalance)}</strong>
+        <small>${totalPnl >= 0 ? "+" : ""}${formatMoney(totalPnl)} desde o início</small>
+      </div>
+    `;
+  }
+  if (paperSummary) {
+    paperSummary.innerHTML = `
+      <div><span>Banca inicial</span><strong>${formatMoney(startingBalance)}</strong></div>
+      <div><span>Saldo atual</span><strong class="${currentBalance >= startingBalance ? "tag-ok" : "tag-bad"}">${formatMoney(currentBalance)}</strong></div>
+      <div><span>PnL líquido paper</span><strong class="${totalPnl >= 0 ? "tag-ok" : "tag-bad"}">${formatMoney(totalPnl)}</strong></div>
+      <div><span>Testes executados</span><strong>${escapeHtml(String(total))}</strong></div>
+      <div><span>Trades aceitos</span><strong class="tag-ok">${escapeHtml(String(accepted))}</strong></div>
+      <div><span>Rejeitados com segurança</span><strong class="tag-warn">${escapeHtml(String(rejected))}</strong></div>
+      <div><span>Taxa aceita</span><strong>${escapeHtml(pct(s.acceptanceRate))}</strong></div>
+      <div><span>Volume simulado aceito</span><strong>${formatMoney(s.acceptedNotionalUsd)}</strong></div>
+      <div><span>Média aceitos</span><strong>${formatMoney(s.averageAcceptedPnlUsd)}</strong></div>
+    `;
+  }
+  if (paperLoopStatus) {
+    if (!loop) {
+      paperLoopStatus.innerHTML = `
+        <div class="paper-status-card is-warn">
+          <strong>Loop ainda sem heartbeat</strong>
+          <span>Abra ou reinicie o INICIAR-Paper-Loop.bat para gravar o status do ciclo.</span>
+        </div>
+      `;
+    } else {
+      const finished = loop.cycleFinishedAt ? new Date(loop.cycleFinishedAt) : null;
+      const ageSec =
+        finished && Number.isFinite(finished.getTime())
+          ? Math.max(0, Math.round((Date.now() - finished.getTime()) / 1000))
+          : null;
+      const stale = ageSec != null && ageSec > Math.max(45, Number(loop.intervalMs || 15000) / 1000 * 4);
+      paperLoopStatus.innerHTML = `
+        <div class="paper-status-card ${loop.ok && !stale ? "is-ok" : "is-warn"}">
+          <strong>${loop.ok ? (stale ? "Loop sem atualizar há muito tempo" : "Loop paper vivo") : "Loop com erro"}</strong>
+          <span>Último ciclo: ${finished ? escapeHtml(finished.toLocaleString("pt-BR")) : "—"}${ageSec != null ? ` · há ${ageSec}s` : ""}</span>
+        </div>
+        <div class="paper-status-card">
+          <strong>${escapeHtml(String(loop.selectedIntents ?? 0))}</strong>
+          <span>intents on-chain no último ciclo</span>
+        </div>
+        <div class="paper-status-card">
+          <strong>${escapeHtml(String(loop.modelIntentsIgnored ?? 0))}</strong>
+          <span>modelos ignorados por segurança</span>
+        </div>
+        <div class="paper-status-card">
+          <strong>${escapeHtml(String(loop.accepted ?? 0))}/${escapeHtml(String(loop.rejected ?? 0))}</strong>
+          <span>aceitos/rejeitados no último ciclo</span>
+        </div>
+      `;
+    }
+  }
+  renderPaperList(
+    paperReasons,
+    s.rejectionReasons || [],
+    "Sem rejeições registadas.",
+    (x) => `<div><span>${escapeHtml(paperReasonLabel(x.reason))}</span><strong>${escapeHtml(String(x.count))}</strong></div>`
+  );
+  renderPaperList(
+    paperChains,
+    s.pnlByChain || [],
+    "Sem trades aceitos ainda.",
+    (x) => `<div><span>${escapeHtml(x.chain)} · ${escapeHtml(String(x.trades))} trades</span><strong>${formatMoney(x.pnlUsd)}</strong></div>`
+  );
+  if (!hasAccepted && paperChains) {
+    paperChains.innerHTML = `
+      <div>
+        <span>Nenhum trade aceito ainda</span>
+        <strong>Saldo preservado</strong>
+        <p class="paper-mini-note">Quando um teste passar no risk gate, ele aparece aqui e o saldo fictício muda.</p>
+      </div>
+    `;
+  }
+  if (paperTrades) {
+    const rows = trades.slice(-40).reverse();
+    if (rows.length === 0) {
+      paperTrades.innerHTML = '<p class="muted">Sem trades paper ainda. Rode <code>npm run paper:loop</code>.</p>';
+      return;
+    }
+    paperTrades.innerHTML = `
+      <table class="paper-table">
+        <thead>
+          <tr>
+            <th>Hora</th>
+            <th>Decisão</th>
+            <th>Mercado</th>
+            <th>Modo</th>
+            <th>PnL</th>
+            <th>Motivo</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows
+            .map(
+              (t) => `
+                <tr>
+                  <td>${escapeHtml(new Date(t.recordedAt).toLocaleString("pt-BR"))}</td>
+                  <td><span class="${t.decision === "accepted" ? "tag-ok" : "tag-warn"}">${escapeHtml(t.decision)}</span></td>
+                  <td>${escapeHtml(t.chain || "")} · ${escapeHtml(t.marketId || "")}</td>
+                  <td>${escapeHtml(t.mode || "")}</td>
+                  <td>${formatMoney(t.paperPnlUsd)}</td>
+                  <td>${escapeHtml(paperReasonLabel(t.reason))}</td>
+                </tr>
+              `
+            )
+            .join("")}
+        </tbody>
+      </table>
+    `;
+  }
+}
+
+async function loadPaperPanel() {
+  if (!paperStatus) return;
+  if (paperInFlight) return;
+  paperInFlight = true;
+  paperStatus.textContent = "A carregar...";
+  try {
+    const res = await fetch("/api/paper/report?limit=80", { cache: "no-store" });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error || res.statusText);
+    renderPaperPanel(body);
+    paperStatus.textContent = `${body.summary?.total ?? 0} eventos · ${new Date(body.summary?.updatedAt || Date.now()).toLocaleString("pt-BR")}`;
+  } catch (e) {
+    paperStatus.textContent = e.message || String(e);
+  } finally {
+    paperInFlight = false;
+  }
+}
+
 async function exportScan(format) {
   fetchStatus.textContent = "export…";
   setGlobalError("");
@@ -558,7 +933,7 @@ async function exportScan(format) {
     }
     const blob = await res.blob();
     const cd = res.headers.get("Content-Disposition") || "";
-    let name = format === "csv" ? "hunter-scan.csv" : "hunter-scan.json";
+    let name = format === "csv" ? "dex-scan.csv" : "dex-scan.json";
     const m = /filename\*=UTF-8''([^;\n]+)|filename="([^"]+)"/i.exec(cd);
     if (m) {
       try {
@@ -583,14 +958,26 @@ async function exportScan(format) {
 }
 
 function renderMarkets(data) {
-  const list = data.markets || [];
+  lastScanData = data;
+  populateChainFilter(data.markets || []);
+  const intents = data.intents || [];
+  if (intentsQuickEl) {
+    if (intents.length > 0) {
+      intentsQuickEl.innerHTML = `<a href="/api/intents" target="_blank" rel="noopener">${intents.length} intents (JSON)</a>`;
+    } else {
+      intentsQuickEl.textContent = "0";
+    }
+  }
+
+  const list = applyPanelFilters(data.markets || []);
   const realList = list.filter(isRealBlock);
   const modelList = list.filter(isModelBlock);
 
   if (data.params) {
     const p = data.params;
+    const totalAll = (data.markets || []).length;
     const parts = [
-      `total ${list.length}`,
+      `visíveis ${list.length}/${totalAll}`,
       `reais ${realList.length}`,
       `modelo ${modelList.length}`,
       p.seedTokensFileLoaded ? "seed OK" : "sem seed",
@@ -620,7 +1007,9 @@ function renderMarkets(data) {
 
   if (list.length === 0) {
     const empty =
-      '<p class="muted">Nenhum mercado. Rode <code>npm run seed:tokens</code> e reinicie o servidor.</p>';
+      (data.markets || []).length > 0
+        ? '<p class="muted">Nenhum mercado corresponde aos filtros (chain / worthwhile / on-chain).</p>'
+        : '<p class="muted">Nenhum mercado. Rode <code>npm run seed:tokens</code> e reinicie o servidor.</p>';
     panelReal.innerHTML = empty;
     panelModel.innerHTML = empty;
     return;
@@ -664,9 +1053,9 @@ function maybeNotify(data) {
           return `${m.chain} ${m.label}: ${formatMoney(m.analysis.netProfitUsd)} (${tag})`;
         })
         .join(" · ");
-      new Notification("HUNTER SCANNER", {
+      new Notification("DEX Scanner", {
         body: parts || "Margem positiva em algum mercado.",
-        tag: "hunter-scan"
+        tag: "dex-scan"
       });
       lastNotifyAt = now;
     }
@@ -676,6 +1065,8 @@ function maybeNotify(data) {
 }
 
 async function fetchScan() {
+  if (scanInFlight) return;
+  scanInFlight = true;
   fetchStatus.textContent = "atualizando…";
   setGlobalError("");
   try {
@@ -698,6 +1089,8 @@ async function fetchScan() {
   } catch (e) {
     fetchStatus.textContent = "erro";
     setGlobalError(e.message || String(e));
+  } finally {
+    scanInFlight = false;
   }
 }
 
@@ -713,7 +1106,7 @@ btnNotify.addEventListener("click", async () => {
   const perm = await Notification.requestPermission();
   if (perm === "granted") {
     notifyStatus.textContent = "Ativado.";
-    new Notification("HUNTER SCANNER", {
+    new Notification("DEX Scanner", {
       body:
         "Aviso quando algum mercado mostrar lucro líquido > 0 (aba REAL = on-chain; aba modelo = referência)."
     });
@@ -740,9 +1133,40 @@ if (btnExportJson) {
 if (btnHistoryRefresh) {
   btnHistoryRefresh.addEventListener("click", () => loadHistoryPanel());
 }
+if (btnPaperRefresh) {
+  btnPaperRefresh.addEventListener("click", () => loadPaperPanel());
+}
 if (historyMarketSelect) {
   historyMarketSelect.addEventListener("change", () => loadHistoryPanel());
 }
 
+loadUiFiltersFromStorage();
+
+function rerenderFromFilters() {
+  saveUiFiltersToStorage();
+  if (lastScanData) renderMarkets(lastScanData);
+}
+
+[filterChain, filterWorthwhile, filterOnchain].forEach((el) => {
+  if (!el) return;
+  el.addEventListener("change", rerenderFromFilters);
+});
+
 fetchScan();
-setInterval(fetchScan, POLL_MS);
+
+function startScanPolling(ms) {
+  if (scanPollTimer) clearInterval(scanPollTimer);
+  scanPollTimer = setInterval(fetchScan, Math.max(5000, ms || DEFAULT_POLL_MS));
+}
+
+startScanPolling(scanPollMs);
+
+setInterval(() => {
+  if (
+    panelPaper &&
+    !panelPaper.hasAttribute("hidden") &&
+    panelPaper.classList.contains("is-active")
+  ) {
+    loadPaperPanel();
+  }
+}, 30000);

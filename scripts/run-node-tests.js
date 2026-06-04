@@ -26,9 +26,20 @@ if (files.length === 0) {
   process.exit(1);
 }
 
-const r = spawnSync(process.execPath, ["--test", ...files], {
-  stdio: "inherit",
-  windowsHide: true
-});
+const testArgs = ["--test"];
+const ver = /^(\d+)\.(\d+)/.exec(process.versions.node || "");
+const major = ver ? parseInt(ver[1], 10) : 0;
+const minor = ver ? parseInt(ver[2], 10) : 0;
+if (major > 20 || (major === 20 && minor >= 2) || (major === 19 && minor >= 9)) {
+  // Evita corridas entre ficheiros que partilham estado in-memory (ex. execution-queue).
+  testArgs.push("--test-concurrency=1");
+}
+testArgs.push(...files);
+
+const r = spawnSync(process.execPath, testArgs, {
+    stdio: "inherit",
+    windowsHide: true
+  }
+);
 
 process.exit(r.status === null ? 1 : r.status);

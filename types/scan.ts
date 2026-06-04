@@ -5,6 +5,23 @@
 
 export type SlippageMode = "bps" | "impact";
 
+export interface StablePegCrossMetric {
+  stableA: string;
+  stableB: string;
+  stableALabel: string;
+  stableBLabel: string;
+  basisBps: number;
+  medianUsdA: number;
+  medianUsdB: number;
+}
+
+export interface SignalModelMetrics {
+  stablePeg?: {
+    mediansWethUsdByStable: Record<string, number>;
+    crossStableBasisBps: StablePegCrossMetric[];
+  } | null;
+}
+
 export type GasPriceSource =
   | "rpc"
   | "table"
@@ -71,6 +88,8 @@ export interface MarketAnalysisBase {
   suppressionReason?: string;
   /** Avisos do modelo DexScreener (ex.: stables diferentes em Polygon) */
   modelWarnings?: string[];
+  /** Métricas estruturadas de sinal (ex.: peg implícito entre stables em Polygon) */
+  signalModelMetrics?: SignalModelMetrics | null;
 }
 
 /** Extensões quando há simulação on-chain / Jupiter / agregador */
@@ -255,4 +274,98 @@ export interface ApiHistoryPoint {
 export interface ApiHistoryResponse {
   points: ApiHistoryPoint[];
   updatedAt: string;
+}
+
+/** Métricas RPC agregadas por rede (desde arranque do processo) — GET /api/config `rpcHealth` */
+export interface RpcHealthPerChain {
+  callsOk: number;
+  callsErr: number;
+  meanLatencyOkMs: number | null;
+  endpointsCircuitOpen: number;
+  circuitBreaker: boolean;
+}
+
+/** Estado da fila in-memory — `GET /api/executor/queue` (campo `queue`) */
+export interface ExecutorQueueState {
+  total: number;
+  pending: number;
+  processing: number;
+  completed: number;
+  failed: number;
+  max: number;
+}
+
+/** Linha resumida de job na lista — `GET /api/executor/queue` (campo `jobs`) */
+export interface ExecutorJobListRow {
+  id: string;
+  status: string;
+  createdAt: string;
+  marketId?: string;
+  chain?: string;
+  mode?: string;
+  netProfitUsd?: number;
+  error?: string | null;
+  result?: unknown;
+}
+
+/** Plano dry-run devolvido por `POST /api/executor/tick` quando `passed` */
+export interface ExecutorDryRunPlan {
+  action: "external_swap_route_required";
+  chain?: string;
+  marketId?: string;
+  label?: string;
+  mode?: string;
+  buyDex?: string;
+  sellDex?: string;
+  notionalUsd?: number;
+  slippageBps?: number;
+  netProfitUsd?: number;
+  note?: string;
+  /** Dicas para um executor externo (nonce, gas, slippage, endpoints). */
+  executorHints?: Record<string, unknown>;
+}
+
+export interface ExecutorDryRunResultPassed {
+  dryRun: true;
+  passed: true;
+  plan: ExecutorDryRunPlan;
+}
+
+export interface ExecutorDryRunResultFailed {
+  dryRun: true;
+  passed: false;
+  reason?: string;
+  hint?: string;
+}
+
+/** `POST /api/executor/enqueue` — 200 */
+export interface ExecutorEnqueueResponse {
+  ok: true;
+  added: number;
+  skipped: number;
+  dropped: number;
+  ids: string[];
+  scanUpdatedAt?: string;
+}
+
+/** `POST /api/executor/tick` — 200 com job */
+export interface ExecutorTickResponseWithJob {
+  ok: true;
+  jobId: string;
+  status: "completed" | "failed" | "processing";
+  result: ExecutorDryRunResultPassed | ExecutorDryRunResultFailed;
+  queue: ExecutorQueueState;
+}
+
+/** `POST /api/executor/tick` — 200 fila vazia */
+export interface ExecutorTickResponseEmpty {
+  ok: true;
+  message: "queue_empty";
+  queue: ExecutorQueueState;
+}
+
+/** `GET /api/executor/queue` — 200 */
+export interface ExecutorQueueListResponse {
+  queue: ExecutorQueueState;
+  jobs: ExecutorJobListRow[];
 }

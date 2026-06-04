@@ -15,7 +15,7 @@ describe("scan-history-noise", () => {
   let histFile;
 
   beforeEach(async () => {
-    tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "hunter-noise-"));
+    tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "scan-noise-"));
     histFile = path.join(tmpDir, "scan-history.jsonl");
     process.env.HISTORY_FILE = histFile;
     process.env.HISTORY_NOISE_WINDOW_SCANS = "20";

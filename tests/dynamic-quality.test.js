@@ -1,8 +1,9 @@
-const { describe, it } = require("node:test");
+const { describe, it, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
 const {
   dynamicPairPassesQuality,
-  passesDexPolicy
+  passesDexPolicy,
+  dynamicPairTokenSymbolsPass
 } = require("../lib/dynamic-quality");
 
 const openCfg = {
@@ -22,6 +23,43 @@ function pair(over = {}) {
     ...over
   };
 }
+
+describe("dynamicPairTokenSymbolsPass", () => {
+  afterEach(() => {
+    delete process.env.DYNAMIC_SYMBOL_HEURISTICS;
+  });
+
+  it("rejeita mesmo símbolo com endereços diferentes (espelho/scam)", () => {
+    assert.equal(
+      dynamicPairTokenSymbolsPass(
+        { symbol: "USDC", address: "0x1111111111111111111111111111111111111111" },
+        { symbol: "USDC", address: "0x2222222222222222222222222222222222222222" }
+      ),
+      false
+    );
+  });
+
+  it("aceita WETH / USDC legítimo", () => {
+    assert.equal(
+      dynamicPairTokenSymbolsPass(
+        { symbol: "WETH", address: "0x7ceb23fd6bc0add59e62ac25578270cff1b9f619" },
+        { symbol: "USDC", address: "0x2791bca1f2de4661ed88a30c99a7a9449aa84174" }
+      ),
+      true
+    );
+  });
+
+  it("DYNAMIC_SYMBOL_HEURISTICS=0 desliga filtro", () => {
+    process.env.DYNAMIC_SYMBOL_HEURISTICS = "0";
+    assert.equal(
+      dynamicPairTokenSymbolsPass(
+        { symbol: "USDC", address: "0x1111111111111111111111111111111111111111" },
+        { symbol: "USDC", address: "0x2222222222222222222222222222222222222222" }
+      ),
+      true
+    );
+  });
+});
 
 describe("dynamic-quality", () => {
   it("rejeita dexId vazio ou unknown", () => {

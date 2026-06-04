@@ -7,10 +7,26 @@ const { appendScan } = require("./lib/scan-history");
 const { scanToCsv, scanToJson } = require("./lib/scan-export");
 const { setLastScan, getLastScan } = require("./lib/last-scan-cache");
 const { notifyWebhookIfOpportunities } = require("./lib/webhook-notify");
+const { validateEnvOnStartup } = require("./lib/env-validate");
+
+const envIssues = validateEnvOnStartup();
+for (const w of envIssues.warnings) {
+  console.warn(`[env] ${w}`);
+}
+if (envIssues.errors.length > 0) {
+  for (const e of envIssues.errors) {
+    console.error(`[env] ${e}`);
+  }
+  process.exit(1);
+}
 
 const PORT = Number(process.env.PORT) || 3000;
 
 const app = express();
+app.use(express.json({ limit: "512kb" }));
+
+const { mountExecutorRoutes } = require("./lib/execution-routes");
+mountExecutorRoutes(app, { getLastScan });
 
 app.get("/api/config", (_req, res) => {
   try {
@@ -87,7 +103,7 @@ app.get("/api/scan/export", async (req, res) => {
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename="hunter-scan-${stamp}.csv"`
+        `attachment; filename="dex-scan-${stamp}.csv"`
       );
       return res.send(csv);
     }
@@ -95,7 +111,7 @@ app.get("/api/scan/export", async (req, res) => {
     res.setHeader("Content-Type", "application/json; charset=utf-8");
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="hunter-scan-${stamp}.json"`
+      `attachment; filename="dex-scan-${stamp}.json"`
     );
     return res.send(json);
   } catch (e) {

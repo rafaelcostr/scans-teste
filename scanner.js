@@ -29,6 +29,8 @@ const {
 } = require("./lib/scan-quality");
 const { buildIntentsFromScan } = require("./lib/scan-intents");
 const { buildHistoryNoiseMap } = require("./lib/scan-history-noise");
+const { buildHistoryVolatilityHintsMap } = require("./lib/scan-history-volatility");
+const { computeSignalModelMetrics } = require("./lib/stable-signal-metrics");
 const scanDiag = require("./lib/scan-diagnostics");
 
 const resilientAxios = {
@@ -410,6 +412,7 @@ function analyzeMarket(marketLabel, chain, rows) {
     grossProfitUsd - gasCostUsd - slippageUsd - poolFeesUsd;
   const worthwhile = isWorthwhileNet(netProfitUsd);
   const modelWarnings = collectModelStableWarnings(chain, rows);
+  const signalModelMetrics = computeSignalModelMetrics(chain, rows);
 
   return applyWorthwhileGates({
     marketLabel,
@@ -432,7 +435,8 @@ function analyzeMarket(marketLabel, chain, rows) {
     costsUsd: gasCostUsd + slippageUsd + poolFeesUsd,
     netProfitUsd,
     worthwhile,
-    modelWarnings
+    modelWarnings,
+    signalModelMetrics
   });
 }
 
@@ -494,6 +498,16 @@ function explainOnchainNotWorthwhile(a) {
   return lines;
 }
 
+function signalPegExplanationLines(a) {
+  const peg = a.signalModelMetrics?.stablePeg;
+  if (!peg?.crossStableBasisBps?.length) return [];
+  const top = peg.crossStableBasisBps[0];
+  if (top.basisBps < 10) return [];
+  return [
+    `Métricas (Polygon): medianas DexScreener WETH/${top.stableALabel} $${top.medianUsdA.toFixed(2)} vs WETH/${top.stableBLabel} $${top.medianUsdB.toFixed(2)} → desvio implícito entre quotes ~${top.basisBps.toFixed(1)} bps (peg/depeg ou quotes não comparáveis; não é “mesmo ativo” entre DEX).`
+  ];
+}
+
 function explainWorthwhile(a) {
   if (a.onChainRoundtrip) {
     return explainOnchainWorthwhile(a);
@@ -510,6 +524,7 @@ function explainWorthwhile(a) {
   const mw = (a.modelWarnings || []).map((w) => `Aviso (modelo): ${w}`);
   return [
     ...mw,
+    ...signalPegExplanationLines(a),
     `Mercado: ${a.marketLabel}. Lucro líquido: $${a.netProfitUsd.toFixed(2)} (${gasDesc}; ${slipDesc}; ${feeDesc}).`,
     "Preço: DexScreener (snapshot). Gas/fee on-chain só com RPC e USE_REAL_CHAIN_DATA. Impacto por liquidez é aproximação; não inclui MEV nem rota real."
   ];
@@ -541,6 +556,7 @@ function explainNotWorthwhile(a) {
   const lines = [
     ...preamble,
     ...(a.modelWarnings || []).map((w) => `Aviso (modelo): ${w}`),
+    ...signalPegExplanationLines(a),
     `Mercado: ${a.marketLabel}. Spread ~${a.spreadPercent.toFixed(4)}% com notional $${NOTIONAL_USD.toFixed(0)} → lucro bruto ~$${a.grossProfitUsd.toFixed(2)}.`,
     `Custos: gas (${a.gasSource}) -$${a.gasCostUsd.toFixed(2)} + ${slipPart} + pool (${a.buyFeeBps}+${a.sellFeeBps} bps) -$${a.poolFeesUsd.toFixed(2)} = -$${a.costsUsd.toFixed(2)}.`,
     resultadoTxt
@@ -943,17 +959,27 @@ async function runScan(opts = {}) {
   }
 
   let historyNoiseMap = new Map();
+  let historyVolatilityMap = new Map();
   if (process.env.ENABLE_SCAN_HISTORY !== "0") {
     try {
       historyNoiseMap = await buildHistoryNoiseMap();
     } catch {
       /* histórico opcional — não falhar o scan */
     }
+    try {
+      historyVolatilityMap = await buildHistoryVolatilityHintsMap();
+    } catch {
+      /* idem */
+    }
   }
   for (const m of out.markets) {
     if (!m || !m.id) continue;
-    const hints = historyNoiseMap.get(m.id);
-    if (hints && hints.length) m.historyHints = hints;
+    const merged = [];
+    const nh = historyNoiseMap.get(m.id);
+    const vh = historyVolatilityMap.get(m.id);
+    if (nh && nh.length) merged.push(...nh);
+    if (vh && vh.length) merged.push(...vh);
+    if (merged.length) m.historyHints = merged;
   }
 
   out.intents = buildIntentsFromScan(out);

@@ -143,7 +143,7 @@ function Ensure-GitOnPath {
 
 if (-not (Ensure-GitOnPath)) {
   Write-Host ""
-  Write-Host "Git (git.exe) nao foi encontrado."
+  Write-Host "Git (git.exe) não foi encontrado."
   Write-Host ""
   Write-Host "Opcoes:"
   Write-Host "  1) Instala Git for Windows e escolhe PATH para ""3rd-party software"":"
@@ -156,7 +156,7 @@ if (-not (Ensure-GitOnPath)) {
 }
 
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-  Write-Host "Erro: git.exe ainda nao acessivel apos ajuste de PATH."
+  Write-Host "Erro: git.exe ainda não acessível após ajuste de PATH."
   exit 1
 }
 
@@ -167,11 +167,6 @@ if ($script:GitResolvedDir) {
 if (-not (Test-Path .git)) {
   git init
 }
-
-$hasName = git config --get user.name 2>$null
-$hasEmail = git config --get user.email 2>$null
-if (-not $hasName) { git config user.name "scans-teste" }
-if (-not $hasEmail) { git config user.email "local@scans-teste.local" }
 
 git add -A
 $st = git status --short
